@@ -1,0 +1,4 @@
+collect.py -- start from topmost seed urls of attraction list, scrape only links that might lead to attraction detail page.
+crawl.py   -- start from attraction detail page link and crawl for detailed attraction information, such as address,comments,rating,...etc.
+db.py      -- db connection file, also include db initialization code
+manage.py  -- management tool, could turn on collect/crawl/db sub-module via this interface
