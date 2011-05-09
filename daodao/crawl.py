@@ -14,7 +14,7 @@ from BeautifulSoup import BeautifulSoup
 from sqlalchemy.orm import sessionmaker
 from optparse import make_option
 
-from hanz.cmd import BaseCommand
+from crawler.cmd import BaseCommand
 from crawler.daodao.model import Attraction, Link2Detail
 from crawler.daodao.db import create_table, DB_CONN_URL
 

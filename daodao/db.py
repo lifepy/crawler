@@ -3,7 +3,7 @@ import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from optparse import make_option
 
-from hanz.cmd import BaseCommand
+from crawler.cmd import BaseCommand
 from crawler.daodao.model import Attraction, Link2List, Link2Detail
 
 db_server = 'orca.rcac.purdue.edu'
