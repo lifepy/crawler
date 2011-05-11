@@ -32,26 +32,24 @@ class Link2Detail(Base):
 class Restraunt(Base):
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
     name = sqlalchemy.Column(sqlalchemy.String(100))
+    feature = sqlalchemy.Column(sqlalchemy.String(100))
+    description = sqlalchemy.Column(sqlalchemy.Text(1000))
+
+    phone = sqlalchemy.Column(sqlalchemy.String(100))
+    cellphone = sqlalchemy.Column(sqlalchemy.String(100))
     rating = sqlalchemy.Column(sqlalchemy.Float(precision=2))
     category = sqlalchemy.Column(sqlalchemy.String(100))
     n_comments = sqlalchemy.Column(sqlalchemy.Integer)
-
-    country = sqlalchemy.Column(sqlalchemy.String(50))
-    locality = sqlalchemy.Column(sqlalchemy.String(50))
-    street_addr = sqlalchemy.Column(sqlalchemy.String(150))
-
-    phone = sqlalchemy.Column(sqlalchemy.String(100))
-    url = sqlalchemy.Column(sqlalchemy.String(200))
-    hours = sqlalchemy.Column(sqlalchemy.String(100))
+    address = sqlalchemy.Column(sqlalchemy.String(200))
     avg_price = sqlalchemy.Column(sqlalchemy.String(100))
 
-    latitude = sqlalchemy.Column(sqlalchemy.Float(precision=8))
-    longtitude = sqlalchemy.Column(sqlalchemy.Float(precision=8))
+    url = sqlalchemy.Column(sqlalchemy.String(200))
 
-    direction = sqlalchemy.Column(sqlalchemy.Text(500))
-    description = sqlalchemy.Column(sqlalchemy.Text(1000))
+    tags = sqlalchemy.Column(sqlalchemy.Text(1000))
+    impression = sqlalchemy.Column(sqlalchemy.Text(1000))
+    recommend = sqlalchemy.Column(sqlalchemy.Text(1000))
+    cooking_variety = sqlalchemy.Column(sqlalchemy.String(100))
 
-    rss_url = sqlalchemy.Column(sqlalchemy.String(50))
     link = sqlalchemy.Column(sqlalchemy.Text(200))
 
     __tablename__ = "attraction"

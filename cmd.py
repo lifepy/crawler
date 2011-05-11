@@ -28,7 +28,6 @@ class BaseCommand(object):
         to this command
         '''
         return OptionParser(prog=prog_name,
-                            usage=self.usage,
                             option_list=self.option_list)
    
     def run_from_argv(self, argv):
