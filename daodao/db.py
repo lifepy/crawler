@@ -5,6 +5,7 @@ import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from optparse import make_option
 
+from crawler.db import create_table
 from crawler.cmd import BaseCommand
 from crawler.daodao.model import Attraction, Link2List, Link2Detail
 
@@ -14,27 +15,18 @@ db_username = 'crawler'
 db_password = 'daodao'
 
 DB_CONN_URL='mysql+mysqldb://%s:%s@%s:3306/%s' % (db_username, db_password, db_server, db_name)
-
-def drop_table(engine, declare_class):
-    table = declare_class.__table__
-    table.metadata.bind = engine
-    if table.exists():
-        table.drop()
-        "DROPPED TABLE: '%s'" %declare_class.__tablename__
-    else:
-        "TABLE '%s' NOT EXIST" %declare_class.__tablename__
- 
-def create_table(engine, declare_class, drop_before_create=False):
-    if drop_before_create:
-        drop_table(engine, declare_class)
-
-    table = declare_class.__table__
-    table.metadata.bind = engine
-    if not table.exists():
-        table.create()
-        print "CREATED TABLE: '%s'" %declare_class.__tablename__
-    else:
-        print "TABLE '%s' EXISTS" %declare_class.__tablename__
+base_url_dict= {
+    'Asia': '/Attractions-g2-Activities-Asia.html',
+    'Europe': '/Attractions-g4-Activities-Europe.html',
+    'Africa': '/Attractions-g6-Activities-Africa.html',
+    'Australia': '/Attractions-g8-Activities-South_Pacific.html',
+    'South America': '/Attractions-g13-Activities-South_America.html',
+    # North America
+    'USA': '/Attractions-g191-Activities-United_States.html',
+    'Canada': '/Attractions-g153339-Activities-Canada.html',
+    'Mexico': '/Attractions-g150768-Activities-Mexico.html',
+    'Carribean': '/Attractions-g147237-Activities-Caribbean.html',
+}
 
 def list_category(db_uri):
     db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)

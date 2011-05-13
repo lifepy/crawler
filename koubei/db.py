@@ -8,8 +8,9 @@ from optparse import make_option
 
 from xpinyin.xpinyin import Pinyin
 
+from crawler.db import create_table
 from crawler.cmd import BaseCommand
-from crawler.daodao.model import Attraction, Link2List, Link2Detail
+from crawler.koubei.model import Store, Link2List, Link2Detail, Page
 
 db_server = 'orca.rcac.purdue.edu'
 db_name = 'koubei'
@@ -19,26 +20,24 @@ db_password = 'koubei'
 DB_CONN_URL='mysql+mysqldb://%s:%s@%s:3306/%s' % (db_username, db_password, db_server, db_name)
 SEEDS_FILE = 'seeds.txt'
 
-def drop_table(engine, declare_class):
-    table = declare_class.__table__
-    table.metadata.bind = engine
-    if table.exists():
-        table.drop()
-        "DROPPED TABLE: '%s'" %declare_class.__tablename__
-    else:
-        "TABLE '%s' NOT EXIST" %declare_class.__tablename__
- 
-def create_table(engine, declare_class, drop_before_create=False):
-    if drop_before_create:
-        drop_table(engine, declare_class)
+# DAOs
+# --------------- Page -------------------
+def exist_page(link):
+    db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8", echo=True)
+    Session = sessionmaker(bind=db)
+    session = Session()
+    result = session.query(Page).filter_by(link=link).first() is None
+    session.close()
+    return result
 
-    table = declare_class.__table__
-    table.metadata.bind = engine
-    if not table.exists():
-        table.create()
-        print "CREATED TABLE: '%s'" %declare_class.__tablename__
-    else:
-        print "TABLE '%s' EXISTS" %declare_class.__tablename__
+def save_page(link, content):
+    db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8", echo=True)
+    Session = sessionmaker(bind=db)
+    session = Session()
+    result = session.query(Page).filter_by(link=link).first() is None
+    session.close()
+    return result
+# -----------------------------------------
 
 def get_base_url_dict():
     # read seed html
@@ -89,14 +88,15 @@ def get_base_url_dict():
 def init_db_for_collect(db_uri):
     db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)
     create_table(db, Link2List, drop_before_create=True)
-    create_table(db, Link2Detail, drop_before_create=False)
+    create_table(db, Link2Detail, drop_before_create=True)
+    create_table(db, Page, drop_before_create=True)
 
     Session = sessionmaker(bind=db)
     session = Session()
 
-    with open(SEEDS_FILE,'r') as f:
+    with open(SEEDS_FILE, 'r') as f:
         for line in f.readlines():
-            name, link = line.split()
+            name, link = line.strip().split(',')
             session.add(Link2List(name, link))
 
     session.commit()
@@ -104,7 +104,7 @@ def init_db_for_collect(db_uri):
 
 def init_db_for_crawl(db_uri):
     db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)
-    create_table(db, Attraction, drop_before_create=True)
+    create_table(db, Store, drop_before_create=False)
 
 class Command(BaseCommand):
     option_list = BaseCommand.option_list + [
@@ -120,17 +120,13 @@ class Command(BaseCommand):
 
         if options['init-collect']:
             # clean up and recreate db for collect
-            choice = raw_input('''WARNING! You are about to remove ALL data in 
-                                   daodao.link2detail, daodao.link2list 
-                               Are you sure you want to do that? [yes/NO]''')
+            choice = raw_input('''WARNING! You are about to remove ALL data in \n\tdaodao.link2detail, daodao.link2list\nAre you sure you want to do that? [yes/NO]''')
             if (choice=='yes'):
                 init_db_for_collect(DB_CONN_URL)
 
         if options['init-crawl']:
             # clean up and recreate db for crawl
-            choice = raw_input('''WARNING! You are about to remove ALL data in 
-                                    daodao.attraction
-                               Are you sure you want to do that? [yes/NO]''')
+            choice = raw_input('''WARNING! You are about to remove ALL data in \n\tdaodao.attraction\nAre you sure you want to do that? [yes/NO]''')
             if (choice=='yes'):
                 init_db_for_crawl(DB_CONN_URL)
 

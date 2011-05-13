@@ -16,6 +16,17 @@ class Link2List(Base):
         self.link = link
         self.scraped = scraped
 
+class Page(Base):
+    id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+    link = sqlalchemy.Column(sqlalchemy.String(300), unique=True)
+    content = sqlalchemy.Column(sqlalchemy.Text(70000))
+    __tablename__='page'
+    __mapper_args={'primary_key':id}
+
+    def __init__(self, link, content):
+        self.link = link
+        self.content = content
+
 class Link2Detail(Base):
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
     name = sqlalchemy.Column(sqlalchemy.String(200))
@@ -29,7 +40,7 @@ class Link2Detail(Base):
         self.link = link
         self.scraped = scraped
 
-class Restraunt(Base):
+class Store(Base):
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
     name = sqlalchemy.Column(sqlalchemy.String(100))
     feature = sqlalchemy.Column(sqlalchemy.String(100))

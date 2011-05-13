@@ -29,8 +29,8 @@ def not_start_with_tag(tag_name):
 
 class StoreDetailCrawler(multiprocessing.Process):
     """
-    Given a list of urls, AttractionDetailCrawler will try to collect information based on 
-    specific page format on www.daodao.com attraction detail page. It then stores these 
+    Given a list of urls, StoreDetailCrawler will try to collect information based on 
+    specific page format on kendi.koubei.com attraction detail page. It then stores these 
     detailed information into database, including:
          店名
          详细地址
@@ -47,8 +47,7 @@ class StoreDetailCrawler(multiprocessing.Process):
 
     link = 'http://beijing.koubei.com/store/detail--storeId-66105fd7767e4211b3b653a0fd2676c6'
     def __init__(self, pool_size=1, interval=5, writeback=True, *args, **kwargs):
-        super(AttractionDetailCrawler, self).__init__(*args, **kwargs)
-        '''
+        super(StoreDetailCrawler, self).__init__(*args, **kwargs)
         assert type(interval) is int
         self.interval = interval
         self.writeback = writeback
@@ -76,7 +75,6 @@ class StoreDetailCrawler(multiprocessing.Process):
         self.br = mechanize.Browser()
         self.br.addheaders = [('User-Agent','Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11')]
         self.attraction_list = []
-        '''
     
     def input_handler(tag):
         result_dict = {}
@@ -291,13 +289,13 @@ class Command(BaseCommand):
         interval = options['interval']
         if options['once']:
             # run once, test mode (no writeback)
-            p = AttractionDetailCrawler(interval=interval, pool_size=num2crawl, writeback=False)
+            p = StoreDetailCrawler(interval=interval, pool_size=num2crawl, writeback=False)
             p.start()
             p.join()
         else:
             # run serial
             while(not completed):
-                p = AttractionDetailCrawler(pool_size=num2crawl, interval=interval)
+                p = StoreDetailCrawler(pool_size=num2crawl, interval=interval)
                 p.start()
                 p.join()
 
