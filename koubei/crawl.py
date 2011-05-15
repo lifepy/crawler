@@ -57,6 +57,9 @@ class StoreDetailCrawler(DetailBaseCrawler):
     def get_links(self):
         return self.__db__.query(Link2Detail).filter_by(status='NEW').limit(self.count).all()
 
+    def exist_link(self, url):
+        return self.__db__.query(Store).filter_by(link=url).first() is not None
+
     def save_page(self, url, content):
         page_obj = self.__db__.query(Page).filter_by(url=url).first()
         if page_obj:
@@ -138,14 +141,14 @@ class StoreDetailCrawler(DetailBaseCrawler):
         # If store not exists, add it
         if self.__db__.query(Store).filter_by(link=self.url).first() is None:
             self.__db__.add(store)
-            print "[STORE] %s" %store.name
+            print "+STORE %s" %store.name
         self.__db__.commit()
 
         link_obj = self.__db__.query(Link2Detail).filter_by(url=self.url).first()
         if link_obj:
             link_obj.status = 'SCRAPED'
             self.__db__.merge(link_obj)
-            print " [LINK] %s" % link_obj.url
+            print "+LINK  %s" % link_obj.url
 
     def handle_store_info_card(self, div):
         props = {}

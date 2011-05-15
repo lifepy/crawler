@@ -39,11 +39,13 @@ class DetailBaseCrawler(multiprocessing.Process):
             # mark for 'SCRAPING'
             for link in self.links:
                 link.status = 'SCRAPING'
+                print "Target: %s" %(link.name)
+
+            if self.writeback:
                 self.__db__.begin()
-                if self.writeback:
+                for link in self.links:
                     self.__db__.merge(link)
                 self.__db__.commit()
-                print "Target: %s" %(link.name)
 
             self.link_obj = self.links[0]
             self.name = self.links[0].name.decode('utf-8')
@@ -106,6 +108,8 @@ class DetailBaseCrawler(multiprocessing.Process):
             sys.exit(0)
 
         for link_obj in self.links:
+            if self.exist_link(link_obj.url):
+                continue
             start = time.time()
             self.link_obj = link_obj
             self.url = link_obj.url
@@ -124,10 +128,9 @@ class DetailBaseCrawler(multiprocessing.Process):
                 self.__db__.merge(link_obj)
                 raise
             finally:
-                for link_obj in self.links:
-                    if link_obj.status == 'SCRAPING':
-                        link_obj.status = 'NEW'
-                        self.__db__.merge(link_obj)
+                if link_obj.status == 'SCRAPING':
+                    link_obj.status = 'NEW'
+                    self.__db__.merge(link_obj)
 
             # sleep to meet rate limit
             end = time.time()
