@@ -1,303 +1,264 @@
 #!/usr/bin/python
-#coding=utf-8
+# encoding: utf-8
 """
-Crawler for www.daodao.com , it collects all attraction details and store into 
+Crawler for www.koubei.com , it collects all attraction details and store into 
 database
 """
 import re
 import sys
 import time
-import mechanize
+import urllib2
 import sqlalchemy
 import multiprocessing
+from optparse import make_option
 from BeautifulSoup import BeautifulSoup
 from sqlalchemy.orm import sessionmaker
-from optparse import make_option
 
-from hanz.cmd import BaseCommand
-from crawler.daodao.model import Attraction, Link2Detail
-from crawler.daodao.db import create_table, DB_CONN_URL
+from crawler.cmd import CrawlerBaseCommand
+from crawler.crawl import DetailBaseCrawler
+from crawler.koubei.model import Link2Detail, Store, Page
+from crawler.koubei.db import DB_CONN_URL, init_db_for_crawl
 
 LAT_LNG_PATTERN = re.compile(r'lat: (-?\d+[.]\d+),\nlng: (-?\d+[.]\d+)')
+RATING_PATTERN = re.compile(r'(\d+.?\d+)%')
 completed = False
 
-def not_start_with_tag(tag_name):
-    def check(string):
-        string = str(string).strip()
-        return not string.startswith('<%s'%tag_name) and not string.startswith('<%s'%tag_name.upper()) and not string.startswith('<%s>'%tag_name) and not string.startswith('<%s'%tag_name.upper())
-    return check
-
-class StoreDetailCrawler(multiprocessing.Process):
+class StoreDetailCrawler(DetailBaseCrawler):
     """
     Given a list of urls, StoreDetailCrawler will try to collect information based on 
     specific page format on kendi.koubei.com attraction detail page. It then stores these 
     detailed information into database, including:
          店名
-         详细地址
+         分类（主营）
+         特色
+         手机*
+         菜系*
+         介绍
+         地址
+         网站地址
          好评率
          点评数
          电话
-         *人均
-         *特色
+         人均*
+         特色*
          经纬度
-         网友tag
-         网友推荐
+         标签
+         *网友推荐
+         *网友印象
+
          * indicates this property is optional
     """
+    store_list = []
 
-    link = 'http://beijing.koubei.com/store/detail--storeId-66105fd7767e4211b3b653a0fd2676c6'
-    def __init__(self, pool_size=1, interval=5, writeback=True, *args, **kwargs):
-        super(StoreDetailCrawler, self).__init__(*args, **kwargs)
-        assert type(interval) is int
-        self.interval = interval
-        self.writeback = writeback
-        db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8")
-        self.__db__ = sessionmaker(bind=db, autocommit=True)()
-
-        assert type(pool_size) is int
-        assert pool_size > 0
-
-        self.link_list = self.__db__.query(Link2Detail).filter_by(status='NEW')[:pool_size]
-        # completed all jobs
-        if self.link_list is None or self.link_list == []:
-            global completed
-            completed = True
-            sys.exit(0)
-
-        # mark for 'SCRAPING'
-        for link_obj in self.link_list:
-            link_obj.status = 'SCRAPING'
-            self.__db__.merge(link_obj)
-            print "Plan to SCRAPING: %s" %(link_obj.name)
-
-        self.name = self.link_list[0].name
-        self.link = self.link_list[0].link
-        self.br = mechanize.Browser()
-        self.br.addheaders = [('User-Agent','Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11')]
-        self.attraction_list = []
+    def get_db_session(self):
+        db = sqlalchemy.create_engine(DB_CONN_URL,encoding='utf8')
+        return sessionmaker(bind=db, autocommit=True)()
     
-    def input_handler(tag):
-        result_dict = {}
-        full_name_input = tag.find('input',{'type':'hidden', id:'store-full-name'})
-        if full_name_input: 
-            store_full_name = dict(full_name_input.attrs)['value']
-            result_dict['full_name'] = store_full_name
+    def get_links(self):
+        return self.__db__.query(Link2Detail).filter_by(status='NEW').limit(self.count).all()
 
-        tel_input = tag.find('input',{'type':'hidden',id:'store-full-name'})
-        if tel_input: 
-            store_tel = dict(tel_input.attrs)['value']
-            result_dict['tel'] = store_tel
-
-        addr_input = tag.find('input',{'type':'hidden',id:'store-address'})
-        if tel_input: 
-            store_address = dict(addr_input.attrs)['value']
-            result_dict['address'] = store_address
-        return result_dict
-
-
-    def named_handler(name):
-        def text_handler(tag):
-            text = BeautifulSoup("".join(map(str, filter(not_start_with_tag('h3'), tag.contents)))).text
-            return {name: text}
-        return text_handler
-    
-    def address_handler(tag):
-        locality_span = tag.find('span',{'class':'locality'})
-        country_span = tag.find('span',{'class':'country-name'})
-        street_address = tag.find('span',{'class':'street-address'})
-
-        result_dict = {}
-        if locality_span: result_dict['locality'] = locality_span.text
-        if country_span: result_dict['country'] = country_span.text
-        if street_address: result_dict['street_addr'] = street_address.text
-        return result_dict
-
-    def direction_handler(tag):
-        if tag.find('div'):
-            direction = tag.find('span',{'class':'full'}).text
+    def save_page(self, url, content):
+        page_obj = self.__db__.query(Page).filter_by(url=url).first()
+        if page_obj:
+            page_obj.content = content.encode('utf-8')
+            self.__db__.merge(page_obj)
         else:
-            direction = "".join(map(str, filter(not_start_with_tag('h3'), tag.contents)))
-        if direction is None:
+            self.__db__.add(Page(url, content.encode('utf-8')))
+
+    def fetch_from_db(self, url):
+        page_obj = self.__db__.query(Page).filter_by(url=url).first()
+        if page_obj:
+            return page_obj.content.decode('utf-8')
+        else: 
             return None
-        return {'direction':direction.strip()}
 
-    def phone_url_handler(tag):
-        url_a = tag.find('a')
-        phone_content = filter(not_start_with_tag('a'), tag.contents)
-        phone_content = filter(not_start_with_tag('h3'), phone_content)
-        phone = "".join(map(str,phone_content)).strip()
+    def fetch_from_web(self, url):
+        return urllib2.urlopen(url).read().decode('utf-8')
 
-        result_dict = {'phone':phone}
-        if url_a: result_dict['url'] = dict(url_a.attrs)['href']
-        return result_dict
+    def parse(self, content):
+        '''Given a unicode string of page, parse it into a dictionary'''
+        page = BeautifulSoup(content)
+        print "NAME | %s \nLINK | %s"% (self.name, self.url)
 
-    li_handler_dict = {
-        # handlers for certain pattern, each handler takes in one BeautifulSoup.Tag object
-        '景点类型':named_handler('category'),
-        '详细地址':address_handler,
-        '电话网址':phone_url_handler,
-        '开放时间':named_handler('hours'),
-        '门票价格':named_handler('price'),
-        '交通路线':direction_handler,
-    }
-
-    def crawl(self, link):
-        ''' Parse target page and form a dictionary '''
-
-        page = BeautifulSoup(self.br.open(link).read().decode('utf-8'))
-        name = page.find('h1',{'id':'HEADING'}).text
-        self.name = name
-
-        print "NAME | %s \nLINK | %s"% (self.name, self.link)
-        print "URL  | %s" %self.br.geturl()
         properties = {
             'n_comments': 0,
             'rating': -1,
-            'name': name,
-            'link': self.link,
+            'link': self.url,
         }
 
-        # Number of Comments 评论数量
-        n_comments_strong = page.find('strong',{'property':'v:count'})
-        if n_comments_strong: properties['n_comments'] = int(n_comments_strong.text)
-
-        # Rating 评分
-        detail_div = page.find('div', {'class':'ar-detail'})
-        li_list = detail_div.findAll('li')
-        rating_strong = li_list[0].find('strong')
-        if rating_strong: properties['rating'] = float(rating_strong.text)
+        # Address 地址
+        # Name 店铺名称
+        # Telephone 电话
+        p = self.handle_hidden_input(page)
+        properties.update(p)
         
-        # Map (GPS latitude/longtitude)
-        match = LAT_LNG_PATTERN.search(page.text)
-        if match:
-            properties['latitude'] = float(match.group(1))
-            properties['longtitude'] = float(match.group(2))
+        # Average Cost 人均
+        store_info_card = page.find('div',{'class':'store-info-card'})
+        if store_info_card:
+            p = self.handle_store_info_card(store_info_card)
+            properties.update(p)
 
-        # Grade 景区评级
-        grade_span = page.find('span',{'class':'ar-grade'})
-        if grade_span: properties['grade']=grade_span.text
+        # Number of Comments 评论数量
+        # Rating 评分
+        title_div = page.find('div', {'class':'store-free-title k2-fix-float'})
+        if title_div:
+            p = self.handle_rating(title_div)
+            properties.update(p)
 
-        # Introduction 简介
-        intro_div = page.find('div',{'class':'review-intro'})
-        if intro_div:
-            intro_content = filter(not_start_with_tag('a'), intro_div.findChild('p').contents)
-            description = "".join(map(str,intro_content))
-            properties['description'] = description.strip()
+        # Detail Main 详细信息
+        detail_main_div = page.find('div',{'class':'detail-main'})
+        if detail_main_div:
+            p = self.handle_detail_main(detail_main_div)
+            properties.update(p)
 
-        # RSS 
-        rss_link = page.find('link',{'type':'application/rss+xml'})
-        if rss_link:
-            rss_url = dict(rss_link.attrs)['href']
-            properties['rss_url'] = rss_url
+        # Promote 推荐
+        promote_more_div = page.find('div',{'id':'promote-more'})
+        if promote_more_div:
+            p = self.handle_promote_more(promote_more_div)
+            properties.update(p)
 
-        for li in li_list[1:]:
-            key = li.find('h3').text.strip()[:4].encode('utf-8')
-            # if key in handler dict, use corresponding handler to handle
-            # otherwise, return None
-            # print "KEY:",key
-            result_dict = self.li_handler_dict.setdefault(key, lambda x: None)(li)
-            if result_dict:
-                properties.update(result_dict)
-        self.attraction_list.append(properties)
+        # Impress 印象
+        impress_more_div = page.find('div',{'id':'impress-more'})
+        if impress_more_div:
+            p = self.handle_impress_more(impress_more_div)
+            properties.update(p)
+
+        self.store_list.append(properties)
         return properties
 
-    def store(self, properties):
+    def save(self, properties):
         if properties is None:
             raise Exception('properties is None')
+        self.__db__.begin()
 
-        p = {}
-        for k, v in properties.items():
-            # print "%-10s => %s" %(k,v)
-            if type(v) is unicode:
-                p[k] = v.encode('utf-8')
-            else:
-                p[k] = v
+        props = self.encode(properties)
 
-        attr = Attraction(p)
-        # If attraction not exists, add it
-        if self.__db__.query(Attraction).filter_by(link=attr.link).first() is None:
-            self.__db__.add(attr)
+        store = Store(props)
 
-        # If link exists, update status to SCRAPED
-        self.link_obj.status = 'SCRAPED'
-        self.__db__.merge(self.link_obj)
-        print "SAVED"
+        # If store not exists, add it
+        if self.__db__.query(Store).filter_by(link=self.url).first() is None:
+            self.__db__.add(store)
+            print "[STORE] %s" %store.name
+        self.__db__.commit()
 
-    def run(self,  *args, **kwargs):
-        for link_obj in self.link_list:
-            start = time.time()
-            self.link_obj = link_obj
-            self.link = link_obj.link
-            self.name = link_obj.name
-            
-            if not self.link.startswith("www.daodao.com") and not self.link.startswith("http://www.daodao.com"):
-                link = "http://www.daodao.com"+self.link
-            try:
-                self.properties = self.crawl(link)
-                # store result into database
-                if self.writeback:
-                    self.store(self.properties)
-            except KeyboardInterrupt:
-                link_obj.status = 'NEW'
-                self.__db__.merge(link_obj)
-            except:
-                link_obj.status = 'ERROR'
-                self.__db__.merge(link_obj)
-                raise
-            finally:
-                for link_obj in self.link_list:
-                    if link_obj.status == 'SCRAPING':
-                        link_obj.status = 'NEW'
-                        self.__db__.merge(link_obj)
+        link_obj = self.__db__.query(Link2Detail).filter_by(url=self.url).first()
+        if link_obj:
+            link_obj.status = 'SCRAPED'
+            self.__db__.merge(link_obj)
+            print " [LINK] %s" % link_obj.url
 
-            # sleep to meet rate limit
-            end = time.time()
+    def handle_store_info_card(self, div):
+        props = {}
+        for li in div.findAll('li'):
+            if li.text.startswith('人均'.decode('utf-8')):
+                props['avg_cost'] = li.text.split('：'.decode('utf-8'))[1]
+            if li.text.startswith('特色'.decode('utf-8')):
+                feature = li.text.split('：'.decode('utf-8'))[1]
+                features = [f.strip() for f in feature.split('&nbsp;')]
+                features = filter(lambda x:x !='' and x is not None, features)
+                props['feature'] = ','.join(features)
+        return props
 
-            sleep_sec = 0
-            if end-start<self.interval:
-                sleep_sec = self.interval-(end-start)
+    def handle_hidden_input(self, page):
+        props = {}
+        full_name_input = page.find('input',{'type':'hidden', 'id':'store-full-name'})
+        if full_name_input: 
+            store_full_name = dict(full_name_input.attrs)['value']
+            props['name'] = store_full_name
 
-            print "USED | %.2f sec, gonna sleep for %.2f sec" % (end-start, sleep_sec)
-            print '-'*80; sys.stdout.flush()
-            time.sleep(sleep_sec)
+        tel_input = page.find('input',{'type':'hidden','id':'store-tel'})
+        if tel_input: 
+            store_tel = dict(tel_input.attrs)['value']
+            props['phone'] = store_tel
 
-        self.__db__.close()
+        addr_input = page.find('input',{'type':'hidden','id':'store-address'})
+        if tel_input: 
+            store_address = dict(addr_input.attrs)['value']
+            props['address'] = store_address
+        return props
 
-class Command(BaseCommand):
-    option_list = BaseCommand.option_list + [
-        make_option('--fresh', action='store_true', dest='fresh', default=False,
-                   help='fresh start'),
-        make_option('--once', action='store_true', dest='once', default=False,
-                   help='run only once'),
-        make_option('--size', action='store', type='int', dest='size', default=10,
-                    help='number of links the crawler will try to crawl'),
-        make_option('--interval', action='store', type='int', dest='interval', default=5,
-                    help='crawling frequency control, 1 link will be crawled in at least ``interval`` seconds'),
+    def handle_detail_main(self, div):
+        props = {}
+        for li in div.findAll('li'):
+            sub_label = li.findChild('label')
+            sub_div = li.findChild('div')
+
+            #if sub_label.text.startswith('附属信息'.decode('utf-8')):
+            #    props['feature'] = sub_div.text.strip()
+
+            if sub_label.text.startswith('网站地址'.decode('utf-8')):
+                props['url'] = sub_div.text.strip()
+
+            if sub_label.text.startswith('店铺标签'.decode('utf-8')):
+                tags = [a.text.strip() for a in sub_div.findAll('a')]
+                props['tags'] = tags
+
+        detail_intro_div = div.find('div',{'class':'detail-intro'})
+        if detail_intro_div:
+            sub_p = detail_intro_div.find('p')
+            sub_div = detail_intro_div.find('div')
+            if sub_div and sub_p and sub_p.text.startswith('店铺介绍'.decode('utf-8')):
+                props['description'] = sub_div.text.strip()
+
+        return props
+
+    def handle_promote_more(self, div):
+        promote = {}
+        for p in div.findAll('p'):
+            sub_a = p.findChild('a')
+            sub_span = p.findChild('span')
+
+            promote_name = sub_a.text
+            promote_count = int(sub_span.text[1:-1])
+            promote[promote_name] = promote_count
+        return {'promote':promote}
+    
+    def handle_impress_more(self, div):
+        impress = [span.text.strip() for span in div.findAll('span')]
+        return {'impress': impress}
+
+    def handle_rating(self, div):
+        props = {}
+        rating_b = div.findAll('b')[0]
+        if rating_b: 
+            match = RATING_PATTERN.match(rating_b.text)
+            if match:
+                props['rating'] = float(match.group(1))
+
+        n_comments_b = div.find('b',{'class':'s-num'})
+        if n_comments_b: 
+            props['n_comments'] = int(n_comments_b.text)
+        return props
+
+class Command(CrawlerBaseCommand):
+    option_list = CrawlerBaseCommand.option_list + [
+        make_option('--pool-size', action='store', dest='pool-size',type='int',default=1),
     ]
-
-    def __init__(self):
-        super(Command, self).__init__()
-
     def execute(self, *args, **options):
-        if options['fresh']:
-            choice = raw_input("WARNING! you are about to remove all data in Table daodao.attraction, are you sure you want to continue? [yes/NO]")
-            if (choice=='yes'):
-                db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8")
-                create_table(db, Attraction, drop_before_create=True)
+        if options['start-over']:
+            init_db_for_crawl(DB_CONN_URL)
 
-        num2crawl = options['size']
+        num2crawl = options['count']
         interval = options['interval']
-        if options['once']:
+        if options['url']:
             # run once, test mode (no writeback)
-            p = StoreDetailCrawler(interval=interval, pool_size=num2crawl, writeback=False)
+            p = StoreDetailCrawler(interval=interval, count=num2crawl, writeback=False, url=options['url'])
             p.start()
             p.join()
         else:
-            # run serial
-            while(not completed):
-                p = StoreDetailCrawler(pool_size=num2crawl, interval=interval)
-                p.start()
-                p.join()
+            # run pool (could have pool size of 1)
+            pool_size = options['pool-size']
+            while (len(multiprocessing.active_children())<pool_size and not completed):
+                num = pool_size - len(multiprocessing.active_children())
+                for i in range(num):
+                    p = StoreDetailCrawler(count=num2crawl, interval=interval)
+                    p.start()
+                    time.sleep(2)
+
+                while(len(multiprocessing.active_children())>=pool_size):
+                    time.sleep(0.5)
+                
+                print 'COMPLETED: ',completed
 
 if __name__=="__main__":
     cmd = Command()

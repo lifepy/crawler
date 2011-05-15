@@ -9,35 +9,16 @@ from optparse import make_option
 from xpinyin.xpinyin import Pinyin
 
 from crawler.db import create_table
-from crawler.cmd import BaseCommand
-from crawler.koubei.model import Store, Link2List, Link2Detail, Page
+from crawler.cmd import DatabaseBaseCommand
+from crawler.koubei.model import Store, Link2List, Link2Detail, Page, Attribute, Tag, Impress, Promote, Base
 
 db_server = 'orca.rcac.purdue.edu'
 db_name = 'koubei'
-db_username = 'crawler'
-db_password = 'koubei'
+db_username = 'koubei'
+db_password = 'crawler'
 
 DB_CONN_URL='mysql+mysqldb://%s:%s@%s:3306/%s' % (db_username, db_password, db_server, db_name)
 SEEDS_FILE = 'seeds.txt'
-
-# DAOs
-# --------------- Page -------------------
-def exist_page(link):
-    db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8", echo=True)
-    Session = sessionmaker(bind=db)
-    session = Session()
-    result = session.query(Page).filter_by(link=link).first() is None
-    session.close()
-    return result
-
-def save_page(link, content):
-    db = sqlalchemy.create_engine(DB_CONN_URL, encoding="utf8", echo=True)
-    Session = sessionmaker(bind=db)
-    session = Session()
-    result = session.query(Page).filter_by(link=link).first() is None
-    session.close()
-    return result
-# -----------------------------------------
 
 def get_base_url_dict():
     # read seed html
@@ -85,11 +66,15 @@ def get_base_url_dict():
     return link2list
 
 # DB Initialization
+def syncdb(db_uri):
+    db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)
+    Base.metadata.create_all(db)
+
 def init_db_for_collect(db_uri):
     db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)
-    create_table(db, Link2List, drop_before_create=True)
-    create_table(db, Link2Detail, drop_before_create=True)
-    create_table(db, Page, drop_before_create=True)
+    create_table(db, Link2List)
+    create_table(db, Link2Detail)
+    create_table(db, Page)
 
     Session = sessionmaker(bind=db)
     session = Session()
@@ -104,31 +89,30 @@ def init_db_for_collect(db_uri):
 
 def init_db_for_crawl(db_uri):
     db = sqlalchemy.create_engine(db_uri, encoding="utf8", echo=True)
-    create_table(db, Store, drop_before_create=False)
+    create_table(db, Store)
+    create_table(db, Attribute)
+    create_table(db, Tag)
+    create_table(db, Impress)
+    create_table(db, Promote)
 
-class Command(BaseCommand):
-    option_list = BaseCommand.option_list + [
-        make_option('--init-seeds',action='store_true',dest='init-seed',default=False),
-        make_option('--init-collect', action='store_true', dest='init-collect', default=False,
-                    help='initiate database for collecting links'),
-        make_option('--init-crawl', action='store_true', dest='init-crawl', default=False,
-                    help='initiate database for crawling detail info'),
+class Command(DatabaseBaseCommand):
+    option_list = DatabaseBaseCommand.option_list + [
+        make_option('--init-seed',action='store_true',dest='init-seed',default=False,
+                   help="read in selectcitynew.html and generate '%s'" % SEEDS_FILE),
     ]
+
     def execute(self, *args, **options):
+        if options['syncdb']:
+            syncdb(DB_CONN_URL)
+
         if options['init-seed']:
             get_base_url_dict()
 
         if options['init-collect']:
-            # clean up and recreate db for collect
-            choice = raw_input('''WARNING! You are about to remove ALL data in \n\tdaodao.link2detail, daodao.link2list\nAre you sure you want to do that? [yes/NO]''')
-            if (choice=='yes'):
-                init_db_for_collect(DB_CONN_URL)
+            init_db_for_collect(DB_CONN_URL)
 
         if options['init-crawl']:
-            # clean up and recreate db for crawl
-            choice = raw_input('''WARNING! You are about to remove ALL data in \n\tdaodao.attraction\nAre you sure you want to do that? [yes/NO]''')
-            if (choice=='yes'):
-                init_db_for_crawl(DB_CONN_URL)
+            init_db_for_crawl(DB_CONN_URL)
 
 if __name__=="__main__":
     import sys
